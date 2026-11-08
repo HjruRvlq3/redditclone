@@ -34,24 +34,5 @@ func (m *Manager) GenerateToken(u *model.User) (string, error) {
 
 // ParseToken ...
 func (m *Manager) ParseToken(tokenString string) (*model.User, error) {
-	claims := &Claims{}
 
-	token, err := jwt.ParseWithClaims(
-		tokenString,
-		claims,
-		func(t *jwt.Token) (interface{}, error) {
-			return m.secret, nil
-		},
-		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-		jwt.WithExpirationRequired(),
-	)
-	if err != nil || !token.Valid {
-		return nil, ErrInvalidToken
-	}
-
-	if claims.User == nil || claims.User.Id == "" || claims.User.Username == "" {
-		return nil, ErrInvalidToken
-	}
-
-	return claims.User, nil
 }
