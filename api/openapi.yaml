@@ -1,0 +1,940 @@
+openapi: 3.0.3
+info:
+  title: API клона Reddit
+  version: 1.0.0
+  description: |
+    Контракт серверной части для фронтенда Asperitas.
+
+    Тела всех запросов и ответов передаются в формате JSON. Объекты и массивы
+    возвращаются напрямую, без обёртки data. Пустые коллекции должны быть
+    представлены как [], а не null. Идентификаторы — строки, внутреннюю структуру
+    которых клиент не должен интерпретировать. Даты — строки в формате RFC 3339.
+    Методы получения списков возвращают все подходящие посты, без пагинации.
+
+    Публичные операции чтения не требуют токена. Для защищённых операций нужен
+    заголовок Authorization: Bearer <token>. Вход и регистрация возвращают
+    подписанный JWT, полезная нагрузка которого содержит user: {id, username};
+    см. схему JwtClaims. Отдельного метода logout нет: фронтенд удаляет токен
+    из локального хранилища.
+servers:
+  - url: http://localhost:8080/api
+    description: Локальный сервер на Go
+tags:
+  - name: Аутентификация
+    description: Регистрация и вход для получения JWT.
+  - name: Посты
+    description: Получение, создание и удаление постов.
+  - name: Комментарии
+    description: Добавление и удаление комментариев, вложенных в пост.
+  - name: Голоса
+    description: Установка и отмена голоса текущего пользователя.
+security: []
+paths:
+  /register:
+    post:
+      tags: [Аутентификация]
+      operationId: register
+      summary: Зарегистрировать пользователя
+      description: |
+        Создать пользователя и сразу выдать токен аутентификации.
+        Имена пользователей должны быть уникальными без учёта регистра.
+        Если имя уже занято, вернуть ошибку валидации (422).
+        Пароли нужно хранить в виде криптографически стойких хешей и никогда
+        не возвращать в ответах.
+      requestBody:
+        $ref: '#/components/requestBodies/Credentials'
+      responses:
+        '201':
+          $ref: '#/components/responses/AuthenticationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /login:
+    post:
+      tags: [Аутентификация]
+      operationId: login
+      summary: Войти в систему
+      description: Проверить имя пользователя и пароль и выдать токен аутентификации.
+      requestBody:
+        $ref: '#/components/requestBodies/Credentials'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuthenticationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Пользователь не существует или пароль неверен.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unknownUser:
+                  value:
+                    message: user not found
+                wrongPassword:
+                  value:
+                    message: invalid password
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /posts:
+    get:
+      tags: [Посты]
+      operationId: listPosts
+      summary: Получить список всех постов
+      description: Вернуть все посты по убыванию рейтинга score. Также доступно по пути /posts/.
+      responses:
+        '200':
+          $ref: '#/components/responses/PostList'
+    post:
+      tags: [Посты]
+      operationId: createPost
+      summary: Создать пост со ссылкой или текстом
+      description: |
+        Автор определяется по JWT, а не по телу запроса. У нового поста
+        views = 0, comments = [], а положительный голос автора добавляется
+        автоматически:
+        score = 1, votes = [{user: author.id, vote: 1}], upvotePercentage = 100.
+        Фронтенд отправляет POST /posts без завершающего слеша.
+      security:
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/CreatePost'
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedPostResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /posts/:
+    get:
+      tags: [Посты]
+      operationId: listPostsWithTrailingSlash
+      summary: Получить список всех постов (вариант с завершающим слешем)
+      description: То же, что GET /posts. Фронтенд использует этот путь для главной ленты.
+      responses:
+        '200':
+          $ref: '#/components/responses/PostList'
+    post:
+      tags: [Посты]
+      operationId: createPostWithTrailingSlash
+      summary: Создать пост (вариант с завершающим слешем)
+      description: Запрос, автоматический голос автора, начальные значения и ответ такие же, как у POST /posts.
+      security:
+        - bearerAuth: []
+      requestBody:
+        $ref: '#/components/requestBodies/CreatePost'
+      responses:
+        '201':
+          $ref: '#/components/responses/CreatedPostResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /posts/{category}:
+    parameters:
+      - name: category
+        in: path
+        required: true
+        description: Название категории, а не её идентификатор.
+        schema:
+          $ref: '#/components/schemas/Category'
+    get:
+      tags: [Посты]
+      operationId: listPostsByCategory
+      summary: Получить список постов категории
+      description: Вернуть посты категории по убыванию рейтинга score или [], если подходящих постов нет.
+      responses:
+        '200':
+          $ref: '#/components/responses/PostList'
+  /user/{username}:
+    parameters:
+      - name: username
+        in: path
+        required: true
+        description: Имя пользователя (логин), а не его идентификатор.
+        schema:
+          $ref: '#/components/schemas/Username'
+    get:
+      tags: [Посты]
+      operationId: listPostsByUser
+      summary: Получить список постов пользователя
+      description: |
+        Вернуть посты пользователя по времени создания, сначала новые.
+        Ответ — массив постов, а не объект профиля пользователя. Если пользователь
+        существует, но не создал ни одного поста, вернуть []. Если пользователь
+        не существует, вернуть 404.
+      responses:
+        '200':
+          $ref: '#/components/responses/PostList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Пользователь не существует.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: user not found
+  /post/{postId}:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [Посты]
+      operationId: getPost
+      summary: Получить пост с комментариями
+      description: |
+        Увеличить views на единицу и вернуть полный объект поста с обновлённым
+        числом просмотров. Получение списков постов не увеличивает views.
+      responses:
+        '200':
+          $ref: '#/components/responses/PostResponse'
+        '400':
+          $ref: '#/components/responses/InvalidId'
+        '404':
+          $ref: '#/components/responses/PostNotFound'
+    post:
+      tags: [Комментарии]
+      operationId: createComment
+      summary: Добавить комментарий к посту
+      description: |
+        Автор комментария определяется по JWT. Вернуть полный обновлённый объект
+        поста, а не только новый комментарий. В запросе текст комментария
+        передаётся в поле comment, а в ответе — в поле body.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+            example:
+              comment: Thanks for sharing!
+      responses:
+        '201':
+          description: Полный объект поста, включая созданный комментарий.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+              examples:
+                withComment:
+                  $ref: '#/components/examples/PostWithComment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PostNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Посты]
+      operationId: deletePost
+      summary: Удалить пост
+      description: |
+        Удалить пост может только его автор или администратор.
+        Вместе с постом удаляются вложенные комментарии и голоса.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Пост удалён. Фронтенд ожидает тело ответа в формате JSON.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message:
+                    type: string
+                    enum: [success]
+              example:
+                message: success
+        '400':
+          $ref: '#/components/responses/InvalidId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PostNotFound'
+  /post/{postId}/{commentId}:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+      - name: commentId
+        in: path
+        required: true
+        description: Идентификатор комментария, принадлежащего этому посту.
+        schema:
+          $ref: '#/components/schemas/Id'
+        example: '507f1f77bcf86cd799439013'
+    delete:
+      tags: [Комментарии]
+      operationId: deleteComment
+      summary: Удалить комментарий из поста
+      description: |
+        Удалить комментарий может его автор, автор поста или администратор.
+        Вернуть полный обновлённый объект поста, а не сообщение об успехе
+        или удалённый комментарий. Если пост или комментарий отсутствует,
+        вернуть 404.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/PostResponse'
+        '400':
+          $ref: '#/components/responses/InvalidId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Пост или комментарий к нему не существует.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                postMissing:
+                  value:
+                    message: post not found
+                commentMissing:
+                  value:
+                    message: comment not found
+  /post/{postId}/upvote:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [Голоса]
+      operationId: upvotePost
+      summary: Установить голос текущего пользователя в +1
+      description: |
+        Добавить положительный голос или заменить отрицательный голос этого
+        пользователя. Повторный запрос не добавляет ещё один голос и не отменяет
+        существующий. У каждого пользователя может быть не более одного голоса
+        за пост. Пересчитать score и upvotePercentage и вернуть полный
+        обновлённый объект поста. Тело запроса отсутствует. Этот GET-запрос
+        изменяет состояние сервера.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          $ref: '#/components/responses/PostResponse'
+        '400':
+          $ref: '#/components/responses/InvalidId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PostNotFound'
+  /post/{postId}/downvote:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [Голоса]
+      operationId: downvotePost
+      summary: Установить голос текущего пользователя в -1
+      description: |
+        Добавить отрицательный голос или заменить положительный голос этого
+        пользователя. Повторный запрос не добавляет ещё один голос и не отменяет
+        существующий. Пересчитать score и upvotePercentage и вернуть полный
+        обновлённый объект поста. Тело запроса отсутствует. Этот GET-запрос
+        изменяет состояние сервера.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Полный объект поста после установки голоса текущего пользователя в -1.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+              examples:
+                downvoted:
+                  $ref: '#/components/examples/DownvotedPost'
+        '400':
+          $ref: '#/components/responses/InvalidId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PostNotFound'
+  /post/{postId}/unvote:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [Голоса]
+      operationId: unvotePost
+      summary: Отменить голос текущего пользователя
+      description: |
+        Удалить запись этого пользователя из votes; не сохранять голос
+        со значением 0. Если пользователь не голосовал, оставить пост без
+        изменений. Пересчитать score и upvotePercentage и вернуть полный
+        обновлённый объект поста. Тело запроса отсутствует. Этот GET-запрос
+        изменяет состояние сервера.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Полный объект поста после отмены голоса текущего пользователя.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+              examples:
+                noVotesRemain:
+                  $ref: '#/components/examples/UnvotedPost'
+        '400':
+          $ref: '#/components/responses/InvalidId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PostNotFound'
+
+components:
+  # Как клиент авторизуется: схемы безопасности (bearerAuth = Authorization: Bearer <JWT>)
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Использовать токен, полученный при входе или регистрации. Сервер должен
+        проверять подпись и срок действия токена, а не просто декодировать его
+        полезную нагрузку. Фронтенд читает payload.user, чтобы получить id
+        и username пользователя. Никогда не включать пароли или их хеши
+        в полезную нагрузку JWT.
+  
+  # Общие параметры пути/запроса, на которые ссылаются ручки через $ref (например, PostId)
+  parameters:
+    PostId:
+      name: postId
+      in: path
+      required: true
+      description: Идентификатор поста.
+      schema:
+        $ref: '#/components/schemas/Id'
+      example: '507f1f77bcf86cd799439012'
+  
+  # Шаблоны тел запросов
+  requestBodies:
+    Credentials:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Credentials'
+          example:
+            username: alice
+            password: example-password
+    CreatePost:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CreatePostRequest'
+          examples:
+            link:
+              value:
+                title: The Go programming language
+                category: programming
+                type: link
+                url: https://go.dev/
+            text:
+              value:
+                title: Learning Go
+                category: programming
+                type: text
+                text: What are your favorite resources for learning Go?
+  
+  # Шаблоны ответов
+  responses:
+    AuthenticationResponse:
+      description: Аутентификация успешна; использовать полученный JWT для защищённых операций.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuthenticationResponse'
+    PostResponse:
+      description: Полный объект поста, включая автора, голоса и комментарии.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Post'
+          examples:
+            withComment:
+              $ref: '#/components/examples/PostWithComment'
+    CreatedPostResponse:
+      description: Созданный пост с автоматически добавленным положительным голосом автора и нулём просмотров.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Post'
+          examples:
+            link:
+              $ref: '#/components/examples/LinkPost'
+            text:
+              $ref: '#/components/examples/TextPost'
+    PostList:
+      description: Массив полных объектов постов или [], если подходящих постов нет.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PostList'
+          examples:
+            onePost:
+              value:
+                - id: '507f1f77bcf86cd799439012'
+                  title: The Go programming language
+                  category: programming
+                  type: link
+                  url: https://go.dev/
+                  author:
+                    id: '507f1f77bcf86cd799439011'
+                    username: alice
+                  score: 1
+                  votes:
+                    - user: '507f1f77bcf86cd799439011'
+                      vote: 1
+                  comments: []
+                  created: '2026-11-02T10:00:00Z'
+                  views: 0
+                  upvotePercentage: 100
+            empty:
+              value: []
+    BadRequest:
+      description: Некорректный JSON, недопустимое тело запроса или неверный параметр пути.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: bad request
+    InvalidId:
+      description: Идентификатор ресурса не соответствует формату, принятому в выбранной реализации.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: invalid post id
+    Unauthorized:
+      description: |
+        Токен Bearer отсутствует, недействителен или просрочен либо у пользователя
+        недостаточно прав для удаления этого ресурса.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: unauthorized
+    PostNotFound:
+      description: Пост не существует.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: post not found
+    ValidationError:
+      description: |
+        JSON разобран, но поля не прошли валидацию. Вернуть непустой массив errors.
+        Для этого статуса нельзя заменять массив ошибок ответом только с полем message.
+        Не включать отклонённые пароли в ошибки, чтобы не возвращать их клиенту.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            invalidTitle:
+              value:
+                errors:
+                  - location: body
+                    param: title
+                    msg: must be at most 100 characters long
+            usernameTaken:
+              value:
+                errors:
+                  - location: body
+                    param: username
+                    msg: already exists
+  
+  # Структуры данных API
+  schemas:
+    PostList:
+      type: array
+      items:
+        $ref: '#/components/schemas/Post'
+    Id:
+      type: string
+      minLength: 1
+      description: Идентификатор ресурса с непрозрачной для клиента структурой; передаётся строкой, а не числом JSON.
+      example: '507f1f77bcf86cd799439011'
+    Username:
+      type: string
+      minLength: 1
+      maxLength: 32
+      pattern: '^[a-zA-Z0-9_-]+$'
+      example: alice
+    Category:
+      type: string
+      minLength: 1
+      description: |
+        Название категории. Фронтенд предлагает music, funny, videos, programming,
+        news и fashion. Допускается любое непустое название категории.
+      example: programming
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          $ref: '#/components/schemas/Username'
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 8
+          maxLength: 72
+          description: Пароль длиной от 8 до 72 символов; для bcrypt также действует ограничение в 72 байта UTF-8.
+          example: example-password
+    User:
+      type: object
+      description: Публичные данные пользователя, вложенные в посты, комментарии и полезную нагрузку JWT; без полей с паролем.
+      required: [id, username]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        username:
+          $ref: '#/components/schemas/Username'
+        admin:
+          type: boolean
+          description: Необязательный признак администратора; для обычных пользователей поле отсутствует или равно false.
+          default: false
+    JwtClaims:
+      type: object
+      description: |
+        Описание декодированной полезной нагрузки JWT, а не отдельного HTTP-ответа.
+        Объект пользователя должен находиться в поле user, а не на верхнем уровне
+        полезной нагрузки. Нельзя заменять его строковым идентификатором субъекта
+        (sub). Поля iat и exp — временные метки Unix в секундах. Срок действия
+        токена — семь дней. Подписывать токены алгоритмом HS256 с секретным ключом
+        на стороне сервера. Нельзя принимать алгоритм из недоверенного токена
+        без проверки его соответствия алгоритму, заданному в настройках сервера.
+      required: [user, iat, exp]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        iat:
+          type: integer
+          format: int64
+          description: Время выдачи токена в секундах с начала эпохи Unix.
+          example: 1793577600
+        exp:
+          type: integer
+          format: int64
+          description: Время истечения срока действия токена в секундах с начала эпохи Unix; должно быть больше iat.
+          example: 1794182400
+      example:
+        user:
+          id: '507f1f77bcf86cd799439011'
+          username: alice
+        iat: 1793577600
+        exp: 1794182400
+    AuthenticationResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: |
+            Подписанный JWT с полезной нагрузкой по схеме JwtClaims. Пример
+            приведён только для документации; рабочий токен нужно получить
+            у запущенного сервера.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjp7ImlkIjoiNTA3ZjFmNzdiY2Y4NmNkNzk5NDM5MDExIiwidXNlcm5hbWUiOiJhbGljZSJ9LCJpYXQiOjE3OTM1Nzc2MDAsImV4cCI6MTc5NDE4MjQwMH0.ysrYMoaGaN8OSZJ-VY3K54seVCgiq9I4ypXnBxWamLQ
+    PostContent:
+      description: |
+        Для поста со ссылкой обязательно поле url, для текстового поста — text.
+        Неиспользуемое поле можно не передавать. Нельзя отклонять запрос из-за
+        наличия неиспользуемого поля: форма фронтенда может сохранять его
+        при переключении типа поста.
+      oneOf:
+        - $ref: '#/components/schemas/LinkPostContent'
+        - $ref: '#/components/schemas/TextPostContent'
+      discriminator:
+        propertyName: type
+        mapping:
+          link: '#/components/schemas/LinkPostContent'
+          text: '#/components/schemas/TextPostContent'
+    LinkPostContent:
+      type: object
+      required: [type, url]
+      properties:
+        type:
+          type: string
+          enum: [link]
+        url:
+          type: string
+          format: uri
+          description: Абсолютный URL для поста со ссылкой.
+          example: https://go.dev/
+    TextPostContent:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          enum: [text]
+        text:
+          type: string
+          minLength: 4
+          description: Содержимое текстового поста; фронтенд отображает его с разметкой Markdown.
+          example: What are your favorite resources for learning Go?
+    CreatePostRequest:
+      allOf:
+        - $ref: '#/components/schemas/PostContent'
+        - type: object
+          required: [title, category]
+          properties:
+            title:
+              type: string
+              minLength: 1
+              maxLength: 100
+              pattern: '^\S(?:[\s\S]*\S)?$'
+              description: Не должно начинаться или заканчиваться пробельными символами.
+              example: The Go programming language
+            category:
+              $ref: '#/components/schemas/Category'
+    CreateCommentRequest:
+      type: object
+      required: [comment]
+      properties:
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Текст комментария; в ответе это поле называется body.
+          example: Thanks for sharing!
+    Vote:
+      type: object
+      required: [user, vote]
+      properties:
+        user:
+          allOf:
+            - $ref: '#/components/schemas/Id'
+          description: Идентификатор пользователя в виде строки, а не вложенный объект пользователя.
+        vote:
+          type: integer
+          enum: [-1, 1]
+          description: -1 для отрицательного голоса, 1 для положительного. При отмене голоса запись удаляется.
+    Comment:
+      type: object
+      required: [id, author, body, created]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        author:
+          $ref: '#/components/schemas/User'
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Текст комментария; фронтенд отображает его с разметкой Markdown.
+          example: Thanks for sharing!
+        created:
+          type: string
+          format: date-time
+          example: '2026-11-02T10:05:00Z'
+    Post:
+      description: Полный объект поста одной и той же структуры используется в списках, при получении отдельного поста и в ответах на изменяющие запросы.
+      allOf:
+        - $ref: '#/components/schemas/PostContent'
+        - type: object
+          required:
+            - id
+            - title
+            - category
+            - author
+            - score
+            - votes
+            - comments
+            - created
+            - views
+            - upvotePercentage
+          properties:
+            id:
+              $ref: '#/components/schemas/Id'
+            title:
+              type: string
+              minLength: 1
+              maxLength: 100
+            category:
+              $ref: '#/components/schemas/Category'
+            author:
+              $ref: '#/components/schemas/User'
+            score:
+              type: integer
+              description: Сумма значений всех голосов. Может быть отрицательной; равна нулю, если голосов нет.
+              example: 1
+            votes:
+              type: array
+              description: Не более одной записи на пользователя. Если голосов нет, вернуть [].
+              items:
+                $ref: '#/components/schemas/Vote'
+            comments:
+              type: array
+              description: Вложенные комментарии. Если комментариев нет, вернуть [].
+              items:
+                $ref: '#/components/schemas/Comment'
+            created:
+              type: string
+              format: date-time
+              example: '2026-11-02T10:00:00Z'
+            views:
+              type: integer
+              minimum: 0
+              description: Число просмотров; увеличивается только при получении отдельного поста.
+              example: 0
+            upvotePercentage:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: |
+                Процент положительных голосов, округлённый вниз:
+                floor(100 * число положительных голосов / общее число голосов).
+                Если голосов нет, равен 0.
+              example: 100
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: post not found
+    ValidationError:
+      type: object
+      required: [errors]
+      properties:
+        errors:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [param, msg]
+            properties:
+              location:
+                type: string
+                enum: [body]
+              param:
+                type: string
+                description: Имя поля запроса, не прошедшего валидацию.
+                example: title
+              msg:
+                type: string
+                description: Понятное пользователю сообщение об ошибке валидации.
+                example: is required
+  
+  # Готовые JSON-примеры
+  examples:
+    LinkPost:
+      summary: Созданный пост со ссылкой и автоматически добавленным положительным голосом автора.
+      value:
+        id: '507f1f77bcf86cd799439012'
+        title: The Go programming language
+        category: programming
+        type: link
+        url: https://go.dev/
+        author:
+          id: '507f1f77bcf86cd799439011'
+          username: alice
+        score: 1
+        votes:
+          - user: '507f1f77bcf86cd799439011'
+            vote: 1
+        comments: []
+        created: '2026-11-02T10:00:00Z'
+        views: 0
+        upvotePercentage: 100
+    TextPost:
+      summary: Созданный текстовый пост.
+      value:
+        id: '507f1f77bcf86cd799439014'
+        title: Learning Go
+        category: programming
+        type: text
+        text: What are your favorite resources for learning Go?
+        author:
+          id: '507f1f77bcf86cd799439011'
+          username: alice
+        score: 1
+        votes:
+          - user: '507f1f77bcf86cd799439011'
+            vote: 1
+        comments: []
+        created: '2026-11-02T10:00:00Z'
+        views: 0
+        upvotePercentage: 100
+    PostWithComment:
+      summary: Полный объект поста после добавления комментария пользователем alice.
+      value:
+        id: '507f1f77bcf86cd799439012'
+        title: The Go programming language
+        category: programming
+        type: link
+        url: https://go.dev/
+        author:
+          id: '507f1f77bcf86cd799439011'
+          username: alice
+        score: 1
+        votes:
+          - user: '507f1f77bcf86cd799439011'
+            vote: 1
+        comments:
+          - id: '507f1f77bcf86cd799439013'
+            author:
+              id: '507f1f77bcf86cd799439011'
+              username: alice
+            body: Thanks for sharing!
+            created: '2026-11-02T10:05:00Z'
+        created: '2026-11-02T10:00:00Z'
+        views: 1
+        upvotePercentage: 100
+    DownvotedPost:
+      summary: Пользователь alice заменяет свой автоматический положительный голос на отрицательный.
+      value:
+        id: '507f1f77bcf86cd799439012'
+        title: The Go programming language
+        category: programming
+        type: link
+        url: https://go.dev/
+        author:
+          id: '507f1f77bcf86cd799439011'
+          username: alice
+        score: -1
+        votes:
+          - user: '507f1f77bcf86cd799439011'
+            vote: -1
+        comments: []
+        created: '2026-11-02T10:00:00Z'
+        views: 1
+        upvotePercentage: 0
+    UnvotedPost:
+      summary: Пользователь alice отменяет свой голос, после чего голосов не остаётся.
+      value:
+        id: '507f1f77bcf86cd799439012'
+        title: The Go programming language
+        category: programming
+        type: link
+        url: https://go.dev/
+        author:
+          id: '507f1f77bcf86cd799439011'
+          username: alice
+        score: 0
+        votes: []
+        comments: []
+        created: '2026-11-02T10:00:00Z'
+        views: 1
+        upvotePercentage: 0
