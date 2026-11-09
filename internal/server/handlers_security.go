@@ -14,7 +14,7 @@ type ctxKey struct{}
 
 var userKey ctxKey
 
-// middlewareFunc ...
+// middlewareFunc извлекает токен из реквеста
 func middlewareFunc(jwtManager *jwtconfig.Manager, nextHandlerFunc http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Fields(r.Header.Get("Authorization"))
@@ -34,9 +34,10 @@ func middlewareFunc(jwtManager *jwtconfig.Manager, nextHandlerFunc http.HandlerF
 	}
 }
 
-// userFromContext ...
+// userFromContext достает юзера из контекста
 func userFromContext(ctx context.Context) *model.User {
-
+	u, _ := ctx.Value(userKey).(*model.User)
+	return u
 }
 
 // registerSecurityHandlers ...

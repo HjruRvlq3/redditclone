@@ -33,7 +33,7 @@ func (m *Manager) GenerateToken(u *model.User) (string, error) {
 	return signed, nil
 }
 
-// ParseToken ...
+// ParseToken проверка токена
 func (m *Manager) ParseToken(tokenString string) (*model.User, error) {
 	claims := &Claims{}
 
