@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/model"
+	"redditclone/internal/model"
 )
 
 func newTestAuthor(t *testing.T) *model.User {

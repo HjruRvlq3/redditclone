@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/jwtconfig"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/store"
+	"redditclone/internal/jwtconfig"
+	"redditclone/internal/store"
 )
 
 // Server HTTP-сервер

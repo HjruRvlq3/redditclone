@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 
+	"redditclone/internal/model"
+
 	"github.com/golang-jwt/jwt/v5"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/model"
 )
 
 var ErrInvalidToken = errors.New("invalid token")
@@ -34,5 +35,25 @@ func (m *Manager) GenerateToken(u *model.User) (string, error) {
 
 // ParseToken ...
 func (m *Manager) ParseToken(tokenString string) (*model.User, error) {
+	claims := &Claims{}
 
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		claims,
+		func(t *jwt.Token) (any, error) {
+			return m.secret, nil
+		},
+		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+	)
+	if err != nil || !token.Valid {
+		return nil, ErrInvalidToken
+	}
+
+	if claims.User.Id == "" || claims.User == nil || claims.User.Username == "" {
+		return nil, ErrInvalidToken
+	}
+
+	return claims.User, nil
 }
