@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"redditclone/internal/jwtconfig"
+	"redditclone/internal/model"
+	"redditclone/internal/store"
+
 	"github.com/golang-jwt/jwt/v5"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/jwtconfig"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/model"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
 

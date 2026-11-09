@@ -1,4 +1,4 @@
-module gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone
+module redditclone
 
 go 1.27.3
 

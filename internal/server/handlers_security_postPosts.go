@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/model"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/store"
+	"redditclone/internal/model"
+	"redditclone/internal/store"
 )
 
 // createPostReq ...

@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"redditclone/internal/model"
+
 	"github.com/golang-jwt/jwt/v5"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/model"
 )
 
 const testSecret = "test-secret-at-least-32-bytes-long!!"

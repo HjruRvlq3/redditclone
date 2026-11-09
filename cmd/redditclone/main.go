@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/jwtconfig"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/server"
-	"gitlab.com/vk-golang/lectures/seminars/01_reddit_clone/redditclone/internal/store"
+	"redditclone/internal/jwtconfig"
+	"redditclone/internal/server"
+	"redditclone/internal/store"
 )
 
 func main() {
