@@ -1,0 +1,4 @@
+static/
+coverage.out
+coverage.html
+*.sh
