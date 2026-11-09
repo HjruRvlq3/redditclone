@@ -18,12 +18,12 @@ var userKey ctxKey
 func middlewareFunc(jwtManager *jwtconfig.Manager, nextHandlerFunc http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Fields(r.Header.Get("Authorization"))
-		if len(parts) != 2 || strings.EqualFold(parts[0], "Bearer") {
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
-		user, err := jwtconfig.ParseToken(parts[1])
+		user, err := jwtManager.ParseToken(parts[1])
 		if err != nil {
 			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 			return
